@@ -12,6 +12,11 @@ use embedded_hal::timer::CountDown;
 use fugit::ExtU32;
 use panic_halt as _;
 use smart_leds::{brightness, SmartLedsWrite, RGB8};
+use usb_device::class_prelude::UsbBusAllocator;
+use usb_device::device::{UsbDeviceBuilder, UsbVidPid};
+use usbd_serial::SerialPort;
+use usbd_serial::UsbError;
+use usbd_serial::USB_CLASS_CDC;
 use waveshare_rp2040_zero::entry;
 use waveshare_rp2040_zero::{
     hal::{
@@ -19,6 +24,7 @@ use waveshare_rp2040_zero::{
         pac,
         pio::PIOExt,
         timer::Timer,
+        usb::UsbBus,
         watchdog::Watchdog,
         Sio,
     },
@@ -29,9 +35,7 @@ use ws2812_pio::Ws2812;
 #[entry]
 fn main() -> ! {
     let mut pac = pac::Peripherals::take().unwrap();
-
     let mut watchdog = Watchdog::new(pac.WATCHDOG);
-
     let clocks = init_clocks_and_plls(
         XOSC_CRYSTAL_FREQ,
         pac.XOSC,
@@ -66,14 +70,49 @@ fn main() -> ! {
         timer.count_down(),
     );
 
+    // Configure USB serial
+    let usb_bus = UsbBusAllocator::new(UsbBus::new(
+        pac.USBCTRL_REGS,
+        pac.USBCTRL_DPRAM,
+        clocks.usb_clock,
+        true,
+        &mut pac.RESETS,
+    ));
+    let mut serial = SerialPort::new(&usb_bus);
+    let mut usb_dev = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x16c0, 0x27dd))
+        .product("Serial port")
+        .device_class(USB_CLASS_CDC)
+        .build();
+
     // Infinite colour wheel loop
     let mut n: u8 = 128;
     loop {
+        // magic wheel
         ws.write(brightness(once(wheel(n)), 32)).unwrap();
         n = n.wrapping_add(1);
 
-        delay.start(25.millis());
+        delay.start(50.millis());
         let _ = nb::block!(delay.wait());
+
+        // skip if no usb device connected
+        if !usb_dev.poll(&mut [&mut serial]) {
+            continue;
+        }
+
+        // read and discard any data sent to us
+        let mut buf = [0u8; 64];
+        serial.read(&mut buf[..]).ok();
+
+        // send some data
+        match serial.write(b"hello!\r\n") {
+            Ok(_count) => {
+                // count bytes were written
+            }
+            // no data could be written
+            Err(UsbError::WouldBlock) => (),
+            // an error occurred
+            Err(_err) => (),
+        };
     }
 }
 
