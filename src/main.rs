@@ -8,10 +8,18 @@
 
 use core::iter::once;
 use defmt_rtt as _;
+use embedded_graphics::{
+    mono_font::{ascii::FONT_6X10, MonoTextStyleBuilder},
+    pixelcolor::BinaryColor,
+    prelude::*,
+    text::{Baseline, Text},
+};
 use embedded_hal::timer::CountDown;
 use fugit::ExtU32;
+use fugit::RateExtU32;
 use panic_halt as _;
 use smart_leds::{brightness, SmartLedsWrite, RGB8};
+use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
 use usb_device::class_prelude::UsbBusAllocator;
 use usb_device::device::{UsbDeviceBuilder, UsbVidPid};
 use usbd_serial::SerialPort;
@@ -21,6 +29,7 @@ use waveshare_rp2040_zero::entry;
 use waveshare_rp2040_zero::{
     hal::{
         clocks::{init_clocks_and_plls, Clock},
+        i2c::I2C,
         pac,
         pio::PIOExt,
         timer::Timer,
@@ -58,6 +67,35 @@ fn main() -> ! {
 
     let timer = Timer::new(pac.TIMER, &mut pac.RESETS, &clocks);
     let mut delay = timer.count_down();
+
+    // Configure display
+    let i2c = I2C::i2c1(
+        pac.I2C1,
+        pins.gp14.into_function(), // sda
+        pins.gp15.into_function(), // scl
+        400.kHz(),
+        &mut pac.RESETS,
+        clocks.peripheral_clock.freq(),
+    );
+    let interface = I2CDisplayInterface::new(i2c);
+    let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
+        .into_buffered_graphics_mode();
+    display.init().unwrap();
+
+    let text_style = MonoTextStyleBuilder::new()
+        .font(&FONT_6X10)
+        .text_color(BinaryColor::On)
+        .build();
+
+    Text::with_baseline("Hello world!", Point::zero(), text_style, Baseline::Top)
+        .draw(&mut display)
+        .unwrap();
+
+    Text::with_baseline("Hello Rust!", Point::new(0, 16), text_style, Baseline::Top)
+        .draw(&mut display)
+        .unwrap();
+
+    display.flush().unwrap();
 
     // Configure the addressable LED
     let (mut pio, sm0, _, _, _) = pac.PIO0.split(&mut pac.RESETS);
