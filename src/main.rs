@@ -2,18 +2,21 @@
 #![no_main]
 
 use defmt_rtt as _;
+use eh0::timer::CountDown;
 use embedded_graphics::{
     image::{Image, ImageRaw},
     pixelcolor::BinaryColor,
     prelude::*,
 };
-use embedded_hal::timer::CountDown;
 use fugit::ExtU32;
 use fugit::RateExtU32;
 use panic_halt as _;
 use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
-use usb_device::class_prelude::UsbBusAllocator;
-use usb_device::device::{UsbDeviceBuilder, UsbVidPid};
+use usb_device::{
+    bus::UsbBusAllocator,
+    device::{StringDescriptors, UsbDeviceBuilder, UsbVidPid},
+    LangID,
+};
 use usbd_serial::SerialPort;
 use usbd_serial::USB_CLASS_CDC;
 use waveshare_rp2040_zero::entry;
@@ -216,8 +219,8 @@ fn main() -> ! {
     // Configure display
     let i2c = I2C::i2c1(
         pac.I2C1,
-        pins.gp14.into_function(), // sda
-        pins.gp15.into_function(), // scl
+        pins.gp14.into_pull_type().into_function(), // sda
+        pins.gp15.into_pull_type().into_function(), // scl
         400.kHz(),
         &mut pac.RESETS,
         clocks.peripheral_clock.freq(),
@@ -237,7 +240,8 @@ fn main() -> ! {
     ));
     let mut serial = SerialPort::new(&usb_bus);
     let mut usb_dev = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x16c0, 0x27dd))
-        .product("Serial port")
+        .strings(&[StringDescriptors::new(LangID::EN).product("Serial port")])
+        .expect("Failed to set strings")
         .device_class(USB_CLASS_CDC)
         .build();
 
